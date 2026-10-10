@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- chinguu v29.3 Vercel｜COD split + Banner carousel + quick links fix -->
+<!-- chinguu v29.4 Vercel｜Banner auto-fit no crop -->
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8" />
@@ -984,6 +984,39 @@ body.home-route .header-main{grid-template-columns:110px 1fr auto}
   .hero-carousel-arrow{width:31px;height:31px;font-size:21px}
   .hero-carousel-prev{left:8px}.hero-carousel-next{right:8px}
   .hero-carousel-dots{bottom:9px}
+}
+</style>
+
+
+<style id="v294-banner-autofit">
+/* v29.4｜Banner 依圖片原比例自動縮放，不裁切 */
+.home-hero{
+  max-width:1280px;
+}
+.hero-carousel,
+.hero-carousel>a{
+  width:100%;
+}
+#heroBanner{
+  display:block;
+  width:100%!important;
+  height:auto!important;
+  max-height:none!important;
+  object-fit:contain!important;
+  object-position:center center!important;
+  border-radius:14px;
+}
+@media(max-width:640px){
+  .home-hero{
+    margin-top:18px!important;
+    padding:0 12px!important;
+  }
+  #heroBanner{
+    width:100%!important;
+    height:auto!important;
+    max-height:none!important;
+    object-fit:contain!important;
+  }
 }
 </style>
 
