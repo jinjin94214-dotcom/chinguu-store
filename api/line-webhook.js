@@ -23,12 +23,14 @@ module.exports = async function handler(req, res) {
     return res.status(200).send("OK");
   }
 
-  const channelSecret = process.env.LINE_LOGIN_CHANNEL_SECRET;
+  // Messaging API 與 LINE Login 是不同 Channel，
+  // 這裡一定要用 Messaging API 自己的 Channel Secret。
+  const channelSecret = process.env.LINE_MESSAGING_CHANNEL_SECRET;
   const gasUrl = process.env.GAS_WEB_APP_URL;
 
   if (!channelSecret) {
-    console.error("Missing LINE_LOGIN_CHANNEL_SECRET");
-    return res.status(500).send("Missing LINE_LOGIN_CHANNEL_SECRET");
+    console.error("Missing LINE_MESSAGING_CHANNEL_SECRET");
+    return res.status(500).send("Missing LINE_MESSAGING_CHANNEL_SECRET");
   }
 
   if (!gasUrl) {
@@ -40,20 +42,15 @@ module.exports = async function handler(req, res) {
     const rawBody =
       typeof req.body === "string"
         ? req.body
-        : JSON.stringify(req.body || {});
+        : Buffer.isBuffer(req.body)
+          ? req.body.toString("utf8")
+          : JSON.stringify(req.body || {});
 
     const signature = req.headers["x-line-signature"] || "";
 
     if (!verifyLineSignature(rawBody, signature, channelSecret)) {
       console.error("Invalid LINE signature");
       return res.status(401).send("Invalid signature");
-    }
-
-    let payload;
-    try {
-      payload = JSON.parse(rawBody);
-    } catch (e) {
-      return res.status(400).send("Invalid JSON");
     }
 
     const gasResponse = await fetch(gasUrl, {
@@ -76,6 +73,7 @@ module.exports = async function handler(req, res) {
     }
 
     return res.status(200).send("OK");
+
   } catch (err) {
     console.error("Webhook error:", err);
     return res.status(200).send("OK");
