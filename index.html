@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<!-- chinguu v29 Vercel -->
+<!-- chinguu v29.2 Vercel｜COD mixed-category split checkout -->
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8" />
@@ -1106,7 +1106,7 @@ body.home-route .header-main{grid-template-columns:110px 1fr auto}
         <div class="checkout-form-stack">
           <div class="field"><label>訂購人本名 *</label><input id="buyerName" /></div>
           <div class="field"><label>LINE 社群暱稱 *</label><input id="lineName" /></div>
-          <div class="field"><label>付款方式 *</label><select id="paymentSelect" name="payment" onchange="renderMethodNotes()"></select><div id="paymentNote" class="cod-note"></div><div id="codWarning" class="cod-warning"></div></div>
+          <div class="field"><label>付款方式 *</label><select id="paymentSelect" name="payment" onchange="handlePaymentMethodChange()"></select><div id="paymentNote" class="cod-note"></div><div id="codWarning" class="cod-warning"></div></div>
           <div class="field"><label>配送方式 *</label><select id="shippingSelect" name="shipping" onchange="renderCheckoutSummary();renderMethodNotes()"></select><div id="shippingNote" class="cod-note"></div></div>
         </div>
       </div>
@@ -1359,6 +1359,43 @@ function renderCheckoutOptions(){
   $('shippingSelect').innerHTML=ships.map(x=>`<option value="${attr(x[1])}">${esc(x[1])}</option>`).join('');renderMethodNotes();
 }
 function renderMethodNotes(){const p=$('paymentSelect')?.value||'',sh=$('shippingSelect')?.value||'';const pk={'銀行轉帳':'銀行轉帳說明','好友 LINE Pay':'好友LINE Pay說明','無卡存款（中信）':'無卡存款說明','貨到付款':'貨到付款說明'}[p];const sk={'7-11 賣貨便':'7-11賣貨便說明','7-11 交貨便':'7-11交貨便說明'}[sh];if($('paymentNote'))$('paymentNote').textContent=pk?(settings[pk]||''):'';if($('shippingNote'))$('shippingNote').textContent=sk?(settings[sk]||''):'';}
+
+function codCartCategories(){
+  return [...new Set(
+    cart
+      .map(x=>String(x.category||'').trim())
+      .filter(Boolean)
+  )];
+}
+
+function codHasMixedCategories(){
+  return codCartCategories().length > 1;
+}
+
+function showCodMixedCategoryAlert(){
+  const cats=codCartCategories();
+  const detail=cats.length ? `
+
+目前購物車分類：${cats.join('、')}` : '';
+  alert(
+    '貨到付款訂單需為同一分類商品 ♡\n\n' +
+    '不同分類商品可能於不同時間抵台，無法合併以貨到付款方式出貨。\n' +
+    '如需使用貨到付款，請將不同分類商品分開結帳。\n\n' +
+    '您也可以改選其他付款方式後一起結帳。' +
+    detail
+  );
+}
+
+function handlePaymentMethodChange(){
+  const el=$('paymentSelect');
+  if(el && el.value==='貨到付款' && codHasMixedCategories()){
+    showCodMixedCategoryAlert();
+    el.value='';
+  }
+  renderMethodNotes();
+  renderCheckoutSummary();
+}
+
 function renderCheckoutOrderItems(){
   $('checkoutOrderItems').innerHTML=cart.map(x=>`<div class="checkout-order-item"><div><b>${esc(x.name)}</b>${x.specs.length?`<span style="color:var(--muted)"> / ${x.specs.map(esc).join(' / ')}</span>`:''} <span style="color:var(--muted)">×${x.qty}</span></div><span>${money(x.price*x.qty)}</span></div>`).join('');
 }
@@ -1965,7 +2002,7 @@ function showOrderSuccess(orderNo,final,orderText){
 
 // Re-define submitOrder only to stop claiming auto-copy / direct LINE before success
 async function submitOrder(){
-  if(orderSubmitting)return;const buyer=$('buyerName').value.trim(),line=$('lineName').value.trim(),payment=$('paymentSelect')?.value,shipping=$('shippingSelect')?.value;if(!buyer||!line||!payment||!shipping){toast('請完整填寫訂購資料');return}if(!$('agree').checked){toast('請先確認購物須知');return}localStorage.setItem('chinguu_buyer',buyer);localStorage.setItem('chinguu_line',line);const t=totals(),final=t.total;const requestToken='REQ-'+Date.now()+'-'+Math.random().toString(36).slice(2,10);const payload={requestToken,buyerName:buyer,lineName:line,payment,shipping,items:cart,subtotal:t.subtotal,comboDiscount:t.combo.total,comboDetails:t.combo.items,couponCode:activeCoupon||'',couponDiscount:t.coupon,finalPrice:final,memberSession:localStorage.getItem('chinguu_member_session')||''};const btn=document.querySelector('.checkout-submit');orderSubmitting=true;if(btn){btn.disabled=true;btn.dataset.old=btn.textContent;btn.textContent='訂單建立中…'}showOrderLoading();
+  if(orderSubmitting)return;const buyer=$('buyerName').value.trim(),line=$('lineName').value.trim(),payment=$('paymentSelect')?.value,shipping=$('shippingSelect')?.value;if(payment==='貨到付款'&&codHasMixedCategories()){showCodMixedCategoryAlert();$('paymentSelect').value='';renderMethodNotes();return}if(!buyer||!line||!payment||!shipping){toast('請完整填寫訂購資料');return}if(!$('agree').checked){toast('請先確認購物須知');return}localStorage.setItem('chinguu_buyer',buyer);localStorage.setItem('chinguu_line',line);const t=totals(),final=t.total;const requestToken='REQ-'+Date.now()+'-'+Math.random().toString(36).slice(2,10);const payload={requestToken,buyerName:buyer,lineName:line,payment,shipping,items:cart,subtotal:t.subtotal,comboDiscount:t.combo.total,comboDetails:t.combo.items,couponCode:activeCoupon||'',couponDiscount:t.coupon,finalPrice:final,memberSession:localStorage.getItem('chinguu_member_session')||''};const btn=document.querySelector('.checkout-submit');orderSubmitting=true;if(btn){btn.disabled=true;btn.dataset.old=btn.textContent;btn.textContent='訂單建立中…'}showOrderLoading();
   try{await fetch(GAS_WEB_APP_URL,{method:'POST',mode:'no-cors',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify(payload)});const result=await waitOrderResult(requestToken);if(!result||result.status!=='success')throw new Error(result?.message||'無法取得訂單編號');const orderNo=result.orderNo;const lines=cart.map(x=>`- [${x.category}] ${x.name}${x.specs.length?' ('+x.specs.join(' / ')+')':''} x${x.qty} = ${money(x.price*x.qty)}`);const comboLines=t.combo.items.map(x=>`組合優惠：${x.name} -${money(x.discount)}`).join('\n');const couponLine=t.coupon?`優惠券 ${activeCoupon}：-${money(t.coupon)}`:'';const orderText=`訂單編號：${orderNo}\n\n꒰ 訂購人資訊 ꒱\n姓名：${buyer}\nLINE社群暱稱：${line}\n付款方式：${payment}\n配送方式：${shipping}\n----------------\n꒰ 訂購明細 ꒱\n${lines.join('\n')}\n----------------\n商品小計：${money(t.subtotal)}\n${comboLines?comboLines+'\n':''}${couponLine?couponLine+'\n':''}應付總額：${money(final)}`;cart=[];activeCoupon=null;saveCart();renderCart();showOrderSuccess(orderNo,final,orderText)}catch(e){console.error(e);alert('訂單建立失敗：'+(e.message||e))}finally{hideOrderLoading();orderSubmitting=false;if(btn){btn.disabled=false;btn.textContent=btn.dataset.old||'確認下單'}}
 }
 </script>
