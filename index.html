@@ -1992,14 +1992,14 @@ function renderNewCustomerSetup(){
 async function saveNewCustomerSetup(){
   const buyerName=($('newMemberBuyerName')?.value||'').trim();
   const lineName=($('newMemberLineName')?.value||'').trim();
-  if(!buyerName||!lineName){
-    toast('請填寫訂購人姓名與 LINE 社群暱稱');
+  if(!buyerName){
+    toast('請填寫訂購人姓名');
     return;
   }
 
   const session=localStorage.getItem('chinguu_member_session')||'';
   const btn=document.querySelector('.member-new-setup .member-primary');
-  if(btn){btn.disabled=true;btn.textContent='設定中…'}
+  if(btn){btn.disabled=true;btn.textContent='查詢歷史訂單中…'}
 
   try{
     const saved=await memberJsonp('memberSaveProfile',{session,buyerName,lineName});
@@ -2008,19 +2008,48 @@ async function saveNewCustomerSetup(){
       return;
     }
 
-    const skipped=await memberJsonp('memberSkipBinding',{session});
-    if(!skipped||!skipped.success){
-      toast('會員資料設定失敗，請稍後再試');
+    const checked=await memberJsonp('memberSkipBinding',{session});
+
+    // 完全查不到歷史訂單，或同名多人但「姓名＋社群暱稱」沒有符合資料 → 真正新客。
+    if(checked?.success && checked?.code==='NEW_CUSTOMER_CONFIRMED'){
+      memberState.member=memberState.member||{};
+      memberState.member.buyerName=buyerName;
+      memberState.member.lineName=lineName;
+      memberState.needsBinding=false;
+      toast('查無歷史訂單，已設定為新會員 ♡');
+      renderMemberDashboard();
       return;
     }
 
-    memberState.member=memberState.member||{};
-    memberState.member.buyerName=buyerName;
-    memberState.member.lineName=lineName;
-    memberState.needsBinding=false;
+    // 同名多人時才要求社群暱稱。
+    if(checked?.code==='NEED_LINE_NAME'){
+      const root=$('memberRoot');
+      root.innerHTML=`<div class="member-bind member-new-setup">
+        <div class="member-sub" style="margin-bottom:18px">
+          找到多筆「${esc(buyerName)}」的歷史訂單 ♡<br>
+          請輸入您當時下單使用的 LINE 社群暱稱來確認是哪一位。
+        </div>
+        <div class="member-bind-row" style="margin-bottom:12px">
+          <input id="newMemberBuyerName" class="member-input" value="${attr(buyerName)}" readonly>
+        </div>
+        <div class="member-bind-row" style="margin-bottom:12px">
+          <input id="newMemberLineName" class="member-input" placeholder="LINE 社群暱稱" value="${attr(lineName)}">
+        </div>
+        <div class="member-actions">
+          <button class="member-primary" type="button" onclick="saveNewCustomerSetup()">繼續查詢</button>
+          <button class="member-secondary" type="button" onclick="renderMemberBinding()">返回</button>
+        </div>
+      </div>`;
+      return;
+    }
 
-    toast('會員資料設定完成 ♡');
-    renderMemberDashboard();
+    // 找到唯一一筆歷史顧客資料：把內容秀給本人確認。
+    if(checked?.code==='HISTORY_CONFIRM_REQUIRED'){
+      renderNewCustomerHistoryConfirm(buyerName,checked);
+      return;
+    }
+
+    toast(checked?.message||'會員資料設定失敗，請稍後再試');
   }catch(e){
     console.error(e);
     toast('會員資料設定失敗，請稍後再試');
@@ -2028,6 +2057,52 @@ async function saveNewCustomerSetup(){
     if(btn){btn.disabled=false;btn.textContent='完成設定並進入會員中心'}
   }
 }
+
+function renderNewCustomerHistoryConfirm(name,r){
+  const root=$('memberRoot');
+  const items=(r.items||[]).map(x=>`
+    <div class="member-item">
+      <b>${esc(x.product||'')}</b>${x.spec?`｜${esc(x.spec)}`:''} × ${esc(x.qty||'')}
+      <div class="member-muted">訂單 ${esc(x.orderNo||'')}${x.productStatus?'｜'+esc(x.productStatus):''}</div>
+    </div>`).join('');
+
+  root.innerHTML=`<div class="member-bind">
+    <div class="member-sub" style="margin-bottom:14px">
+      有找到「${esc(name)}」之前的訂單資料 ♡<br>
+      請確認下面是不是您的訂單：
+    </div>
+    <div class="member-result">
+      ${items||'<div class="member-sub">找到歷史顧客資料。</div>'}
+    </div>
+    <div class="member-actions" style="margin-top:16px">
+      <button class="member-primary" type="button"
+        onclick="confirmMemberBinding('${encodeURIComponent(name)}','${attr(r.customerKey||'')}')">
+        是的，這是我的資料
+      </button>
+      <button class="member-secondary" type="button" onclick="confirmActuallyNewCustomer()">
+        不是我的
+      </button>
+    </div>
+  </div>`;
+}
+
+async function confirmActuallyNewCustomer(){
+  const session=localStorage.getItem('chinguu_member_session')||'';
+  try{
+    const r=await memberJsonp('memberConfirmNewCustomer',{session});
+    if(!r||!r.success){
+      toast(r?.message||'設定失敗，請稍後再試');
+      return;
+    }
+    memberState.needsBinding=false;
+    toast('已設定為新會員 ♡');
+    renderMemberDashboard();
+  }catch(e){
+    console.error(e);
+    toast('設定失敗，請稍後再試');
+  }
+}
+
 async function lookupMemberName(){
   const name=$('memberBindName').value.trim(),box=$('memberBindResult');if(!name){box.innerHTML='<div class="member-sub">請輸入訂購人姓名。</div>';return}box.innerHTML='<div class="member-sub">查詢中…</div>';const session=localStorage.getItem('chinguu_member_session')||'';
   try{const r=await memberJsonp('memberLookupName',{session,name});if(r&&r.code==='NEED_LINE_NAME'){box.innerHTML=`<div class="member-sub">找到多筆相同訂購人姓名。<br>請再輸入您下單時使用的 LINE 社群暱稱。</div><div class="member-bind-row" style="margin-top:14px"><input id="memberBindLineName" class="member-input" placeholder="LINE 社群暱稱"><button class="member-primary" onclick="lookupMemberLineName('${encodeURIComponent(name)}')">繼續查詢</button></div>`;return}if(!r||!r.success){box.innerHTML=`<div class="member-sub">${esc(r?.message||'找不到符合的歷史訂單資料，請私訊 chinguu 官方處理 ♡')}</div>`;return}renderMemberLookupResult(name,r,box)}catch(e){box.innerHTML='<div class="member-sub">查詢失敗，請稍後再試。</div>'}
@@ -2655,3 +2730,7 @@ applySettings=function(){
 
 </body>
 </html>
+
+<!-- chinguu v29.5｜新客歷史訂單防呆 -->
+
+<!-- chinguu v29.6｜新客姓名查歷史 → 唯一資料確認／同名用暱稱判斷 -->
