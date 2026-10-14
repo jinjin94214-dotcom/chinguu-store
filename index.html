@@ -1556,7 +1556,28 @@ function startMemberLineLogin(){
 }
 function renderMemberBinding(){const m=memberState.member||{};$('memberRoot').innerHTML=`<div class="member-bind"><div class="member-sub">Hi ${esc(m.displayName||'')} ♡<br>第一次使用 MY PAGE 嗎？<br>請輸入您過去下單時使用的訂購人姓名</div><div class="member-bind-row"><input id="memberBindName" class="member-input" placeholder="訂購人姓名"><button class="member-primary" onclick="lookupMemberName()">查詢</button></div><div id="memberBindResult" class="member-result"></div></div>`}
 async function lookupMemberName(){const name=$('memberBindName').value.trim(),box=$('memberBindResult');if(!name){box.innerHTML='<div class="member-sub">請輸入訂購人姓名。</div>';return}box.innerHTML='<div class="member-sub">查詢中…</div>';const session=localStorage.getItem('chinguu_member_session')||'';try{const r=await memberJsonp('memberLookupName',{session,name});if(!r.success){box.innerHTML=`<div class="member-sub">${esc(r.message||'查無資料')}</div>`;return}const items=(r.items||[]).map(x=>`<div class="member-item"><b>${esc(x.product)}</b>${x.spec?`｜${esc(x.spec)}`:''} × ${esc(x.qty)}<div class="member-muted">訂單 ${esc(x.orderNo)}${x.productStatus?'｜'+esc(x.productStatus):''}</div></div>`).join('');box.innerHTML=`<div style="font-size:13px;margin-bottom:8px">找到以下歷史購買資料：</div>${items}<div class="member-actions"><button class="member-primary" onclick="confirmMemberBinding('${encodeURIComponent(name)}','${attr(r.customerKey)}')">是的，這是我的資料</button><button class="member-secondary" onclick="$('memberBindResult').innerHTML=''">不是我的資料</button></div>`}catch(e){box.innerHTML='<div class="member-sub">查詢失敗，請稍後再試。</div>'}}
-async function confirmMemberBinding(nameEnc,key){const session=localStorage.getItem('chinguu_member_session')||'';const name=decodeURIComponent(nameEnc);const box=$('memberBindResult');box.innerHTML='<div class="member-sub">綁定中…</div>';const r=await memberJsonp('memberConfirmBinding',{session,name,customerKey:key});if(!r.success){box.innerHTML=`<div class="member-sub">${esc(r.message||'綁定失敗')}</div>`;return}toast('會員資料綁定完成 ♡');await renderMemberPage()}
+async function confirmMemberBinding(nameEnc,key){
+  const session=localStorage.getItem('chinguu_member_session')||'';
+  const name=decodeURIComponent(nameEnc);
+  const box=$('memberBindResult')||$('memberRoot');
+  if(box) box.innerHTML='<div class="member-bind"><div class="member-sub">綁定中…</div></div>';
+
+  try{
+    const r=await memberJsonp('memberConfirmBinding',{session,name,customerKey:key});
+
+    if(!r||!r.success){
+      if(box) box.innerHTML=`<div class="member-bind"><div class="member-sub">${esc(r?.message||'綁定失敗')}</div></div>`;
+      return;
+    }
+
+    toast('會員資料綁定完成 ♡');
+    await renderMemberPage();
+
+  }catch(e){
+    console.error(e);
+    if(box) box.innerHTML='<div class="member-bind"><div class="member-sub">綁定失敗，請稍後再試。</div></div>';
+  }
+}
 function memberStatusClass(v){
   const t=String(v||'').trim();
   if(/未付款|待付款/.test(t))return 'status-unpaid';
@@ -2734,3 +2755,5 @@ applySettings=function(){
 <!-- chinguu v29.5｜新客歷史訂單防呆 -->
 
 <!-- chinguu v29.6｜新客姓名查歷史 → 唯一資料確認／同名用暱稱判斷 -->
+
+<!-- chinguu v29.8｜修正新客誤選後確認歷史訂單無法綁定 -->
