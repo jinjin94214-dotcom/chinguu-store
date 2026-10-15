@@ -1334,226 +1334,27 @@ function parseImages(v){if(!v)return[];return String(v).split(/\r?\n|\s*\|\s*/).
 function parseSpecs(v){if(!v)return[];return String(v).split('/').map(group=>group.split(',').map(x=>x.trim()).filter(Boolean)).filter(x=>x.length)}
 function stockOf(p){const raw=String(p['庫存']??'').trim();return raw===''?Infinity:Math.max(0,+raw||0)}
 function isSold(p){return stockOf(p)===0}
-
-function productGroupKey(p){
-  return [
-    String(p['分類']||'').trim(),
-    String(p['商品名稱']||'').trim()
-  ].join('||');
-}
-
-function getProductGroupRows(p){
-  const key=productGroupKey(p);
-  return products.filter(x=>productGroupKey(x)===key);
-}
-
-function getProductGroups(list){
-  const seen=new Set(),out=[];
-  list.forEach(p=>{
-    const key=productGroupKey(p);
-    if(seen.has(key)) return;
-    seen.add(key);
-    out.push(p);
-  });
-  return out;
-}
-
-function getRowSpecValues(p){
-  const g1=String(p['規格1名稱']||'').trim();
-  const g2=String(p['規格2名稱']||'').trim();
-
-  // 優先使用 v29 的規格1/規格2欄位；
-  // 若未使用，退回舊的「商品規格」格式。
-  if(g1 || g2){
-    return [g1,g2].filter(Boolean);
-  }
-
-  const groups=parseSpecs(p['商品規格']);
-  // 若每列本身就是一個實際規格，取每組第一個值。
-  return groups.map(g=>g[0]||'').filter(Boolean);
-}
-
-function getGroupSpecOptions(rows){
-  const max=Math.max(0,...rows.map(r=>getRowSpecValues(r).length));
-  const result=[];
-  for(let i=0;i<max;i++){
-    const vals=[];
-    rows.forEach(r=>{
-      const v=getRowSpecValues(r)[i];
-      if(v && !vals.includes(v)) vals.push(v);
-    });
-    if(vals.length) result.push(vals);
-  }
-  return result;
-}
-
-function findProductRowBySelection(rows,selections){
-  const wanted=(selections||[]).map(x=>String(x||'').trim());
-  return rows.find(r=>{
-    const vals=getRowSpecValues(r);
-    if(vals.length!==wanted.length) return false;
-    return vals.every((v,i)=>v===wanted[i]);
-  }) || null;
-}
-
 function productCardHtml(p){
-  const rows=getProductGroupRows(p);
-  const base=rows[0]||p;
-  const imgs=parseImages(base['圖片網址']);
-  const img=imgs[0]||'';
-  const allSold=rows.every(r=>isSold(r));
-  const prices=rows.map(r=>+r['價格']||0).filter(n=>n>0);
-  const minPrice=prices.length?Math.min(...prices):0;
-  const maxPrice=prices.length?Math.max(...prices):0;
-  const priceText=minPrice===maxPrice?money(minPrice):`${money(minPrice)}～${money(maxPrice)}`;
-  const idx=products.indexOf(base);
-
-  return `<article class="card" onclick="openProduct(${idx})">
-    <div class="image-box">
-      ${img?`<img src="${attr(img)}" alt="${attr(base['商品名稱'])}" loading="lazy">`:''}
-      ${allSold?'<div class="sold-overlay">SOLD OUT</div>':''}
-      ${imgs.length>1?`<span class="sold-chip">${imgs.length} photos</span>`:''}
-    </div>
-    <div class="card-info">
-      <div class="mini-tags">
-        ${rows.some(r=>r['二補']==='是')?'<span class="tag">二補</span>':''}
-        ${rows.some(r=>r['支援貨到付款']==='是')?'<span class="tag cod">可貨到付款</span>':''}
-      </div>
-      <p class="product-name">${esc(base['商品名稱'])}</p>
-      <div class="price">${priceText}</div>
-    </div>
-  </article>`;
+  const idx=products.indexOf(p),imgs=parseImages(p['圖片網址']),img=imgs[0]||'',sold=isSold(p);
+  return `<article class="card" onclick="openProduct(${idx})"><div class="image-box">${img?`<img src="${attr(img)}" alt="${attr(p['商品名稱'])}" loading="lazy">`:''}${sold?'<div class="sold-overlay">SOLD OUT</div>':''}${imgs.length>1?`<span class="sold-chip">${imgs.length} photos</span>`:''}</div><div class="card-info"><div class="mini-tags">${p['二補']==='是'?'<span class="tag">二補</span>':''}${p['支援貨到付款']==='是'?'<span class="tag cod">可貨到付款</span>':''}</div><p class="product-name">${esc(p['商品名稱'])}</p><div class="price">${money(p['價格'])}</div></div></article>`;
 }
-
 function renderProducts(){
   const q=$('searchInput').value.trim().toLowerCase();let list=products.filter(p=>{const cat=String(p['分類']||'').trim();const name=String(p['商品名稱']||'').toLowerCase();return (activeCategory==='全部'||cat===activeCategory)&&(!q||name.includes(q));});
   const sort=$('sortSelect').value;if(sort==='priceAsc')list.sort((a,b)=>(+a['價格']||0)-(+b['價格']||0));if(sort==='priceDesc')list.sort((a,b)=>(+b['價格']||0)-(+a['價格']||0));
   $('shopTitle').textContent=activeCategory==='全部'?'ALL ITEMS':activeCategory;const mt=$('mobileShopTitle');if(mt)mt.textContent=activeCategory==='全部'?'ALL ITEMS':activeCategory;$('itemCount').textContent=`${list.length} items`;$('empty').style.display=list.length?'none':'block';
-  const grouped=getProductGroups(list);$('itemCount').textContent=`${grouped.length} items`;$('productGrid').innerHTML=grouped.map(p=>productCardHtml(p)).join('');
+  $('productGrid').innerHTML=list.map(p=>productCardHtml(p)).join('');
 }
 let galleryImages=[],galleryIndex=0,galleryTouchX=0;
-
 function openProduct(idx){
-  currentProduct=products[idx];
-  const rows=getProductGroupRows(currentProduct);
-  const base=rows[0]||currentProduct;
-  const specGroups=getGroupSpecOptions(rows);
-
-  const firstSelections=specGroups.map(g=>g[0]);
-  const firstRow=findProductRowBySelection(rows,firstSelections)||base;
-  currentProduct=firstRow;
-
-  const imgs=parseImages(firstRow['圖片網址']);
-  const sold=isSold(firstRow);
-  const limit=+firstRow['限購數量']||0;
-
-  galleryImages=imgs;
-  galleryIndex=0;
-
+  currentProduct=products[idx];const p=currentProduct,imgs=parseImages(p['圖片網址']),specs=parseSpecs(p['商品規格']),sold=isSold(p),limit=+p['限購數量']||0;
+  galleryImages=imgs;galleryIndex=0;
   const galleryControls=imgs.length>1?`
     <button class="gallery-arrow prev" type="button" aria-label="上一張圖片" onclick="event.stopPropagation();stepGallery(-1)">‹</button>
     <button class="gallery-arrow next" type="button" aria-label="下一張圖片" onclick="event.stopPropagation();stepGallery(1)">›</button>`:'';
-
   const dots=imgs.length>1?`<div class="gallery-dots">${imgs.map((_,i)=>`<button type="button" class="gallery-dot ${i===0?'active':''}" aria-label="第 ${i+1} 張圖片" onclick="showGalleryImage(${i})"></button>`).join('')}</div>`:'';
-
-  const thumbs=imgs.length>1?`<div class="product-thumbs">${imgs.map((u,i)=>`<button class="thumb ${i===0?'active':''}" type="button" onclick="changeImage(this,'${attr(u)}')"><img src="${attr(u)}"></button>`).join('')}</div>`:'';
-
-  const specHtml=specGroups.map((g,i)=>`
-    <div class="field">
-      <label>${esc(i===0 ? (base['規格1名稱']?'規格1':'規格') : (base['規格2名稱']?'規格2':`規格${i+1}`))}</label>
-      <select id="spec${i}" onchange="updateGroupedProductSelection()">
-        ${g.map(v=>`<option value="${attr(v)}">${esc(v)}</option>`).join('')}
-      </select>
-    </div>`).join('');
-
-  const modal=$('productModal');
-  modal.innerHTML=`
-    <button class="close" onclick="closeAll()">×</button>
-    <div class="product-modal-grid">
-      <div class="product-gallery">
-        <div class="product-main-image">
-          ${imgs[0]?`<img id="mainProductImg" src="${attr(imgs[0])}" alt="${attr(base['商品名稱'])}">`:''}
-          ${galleryControls}
-        </div>
-        ${dots}
-        ${thumbs}
-      </div>
-      <div class="product-detail">
-        <div class="mini-tags">
-          ${firstRow['二補']==='是'?'<span class="tag">二補</span>':''}
-          ${firstRow['支援貨到付款']==='是'?'<span class="tag cod">可貨到付款</span>':''}
-        </div>
-        <h2>${esc(base['商品名稱'])}</h2>
-        <div id="groupedProductPrice" class="product-price">${money(firstRow['價格'])}</div>
-        ${specHtml}
-        <div class="qty-row">
-          <button type="button" onclick="changeProductQty(-1)">−</button>
-          <input id="productQty" value="1" inputmode="numeric">
-          <button type="button" onclick="changeProductQty(1)">＋</button>
-        </div>
-        <div id="groupedProductStockNote" class="cod-note"></div>
-        <div id="groupedProductAction">
-          ${sold?'<div class="sold-message">此商品已售完</div>':'<button class="primary" onclick="addCurrentToCart()">加入購物車</button>'}
-        </div>
-      </div>
-    </div>`;
-
-  modal.dataset.groupKey=productGroupKey(base);
-  updateGroupedProductSelection();
+  $('productModalBody').innerHTML=`<div class="gallery"><div class="main-img-wrap" id="mainImgWrap" ontouchstart="galleryTouchStart(event)" ontouchend="galleryTouchEnd(event)">${imgs[0]?`<img id="mainProductImg" src="${attr(imgs[0])}" draggable="false" style="cursor:zoom-in" onclick="event.stopPropagation();openImageZoom(this.src)">`:''}${galleryControls}${sold?'<div class="sold-overlay">SOLD OUT</div>':''}</div>${dots}${imgs.length>1?`<div class="thumbs">${imgs.map((u,i)=>`<img class="thumb ${i===0?'active':''}" src="${attr(u)}" onclick="showGalleryImage(${i})">`).join('')}</div>`:''}</div><div class="detail"><div class="mini-tags">${p['分類']?`<span class="tag">${esc(p['分類'])}</span>`:''}${p['二補']==='是'?'<span class="tag">二補</span>':''}</div><h2>${esc(p['商品名稱'])}</h2><div class="price">${money(p['價格'])}</div>${specs.map((g,i)=>`<div class="field spec-select-field"><select id="spec${i}" aria-label="商品規格 ${i+1}">${g.map(x=>`<option>${esc(x)}</option>`).join('')}</select></div>`).join('')}<div class="field"><label>數量${limit?`（每筆限購 ${limit} 件）`:''}</label><div class="qty-stepper"><button type="button" onclick="changeProductQty(-1)">−</button><input id="productQty" type="number" value="1" min="1" max="${Math.min(stockOf(p),limit||Infinity)}" readonly><button type="button" onclick="changeProductQty(1)">＋</button></div></div><div class="cod-note">${p['支援貨到付款']==='是'?'此商品支援貨到付款。':'此商品不支援直接選擇貨到付款。'}</div>${sold?'<div class="sold-message">此商品已售完</div>':'<button class="primary" onclick="addCurrentToCart()">加入購物車</button>'}</div>`;
   showModal('productModal');
 }
-
-function updateGroupedProductSelection(){
-  const modal=$('productModal');
-  if(!modal)return;
-
-  const groupKey=modal.dataset.groupKey||'';
-  const rows=products.filter(x=>productGroupKey(x)===groupKey);
-  const specGroups=getGroupSpecOptions(rows);
-  const selections=specGroups.map((_,i)=>$('spec'+i)?.value||'');
-  const row=findProductRowBySelection(rows,selections);
-
-  const price=$('groupedProductPrice');
-  const action=$('groupedProductAction');
-  const note=$('groupedProductStockNote');
-
-  if(!row){
-    currentProduct=null;
-    if(price) price.textContent='此規格組合目前無資料';
-    if(note) note.textContent='';
-    if(action) action.innerHTML='<div class="sold-message">此規格組合目前無法購買</div>';
-    return;
-  }
-
-  currentProduct=row;
-
-  const imgs=parseImages(row['圖片網址']);
-  galleryImages=imgs;
-  galleryIndex=0;
-  const main=$('mainProductImg');
-  if(main && imgs[0]) main.src=imgs[0];
-
-  if(price) price.textContent=money(row['價格']);
-
-  const stock=stockOf(row);
-  const limit=+row['限購數量']||0;
-  if(note){
-    const bits=[];
-    if(Number.isFinite(stock)) bits.push(`庫存 ${stock}`);
-    if(limit) bits.push(`每人限購 ${limit}`);
-    note.textContent=bits.join('｜');
-  }
-
-  if(action){
-    action.innerHTML=isSold(row)
-      ? '<div class="sold-message">此商品已售完</div>'
-      : '<button class="primary" onclick="addCurrentToCart()">加入購物車</button>';
-  }
-
-  const qty=$('productQty');
-  if(qty) qty.value='1';
-}
-
 function showGalleryImage(i){
   if(!galleryImages.length)return;
   galleryIndex=(i+galleryImages.length)%galleryImages.length;
@@ -1576,22 +1377,34 @@ function changeProductQty(d){const el=$('productQty');if(!el||!currentProduct)re
 function saveCart(){try{localStorage.setItem('chinguu_cart',JSON.stringify(cart))}catch(e){}}
 function restoreCart(){
   let changed=false,removed=0;
+
   try{
-    const x=JSON.parse(localStorage.getItem('chinguu_cart')||'[]');
-    cart=Array.isArray(x)?x:[];
+    const saved=JSON.parse(localStorage.getItem('chinguu_cart')||'[]');
+    cart=Array.isArray(saved)?saved:[];
 
     cart=cart.filter(item=>{
       const category=String(item.category||'').trim();
       const name=String(item.name||'').trim();
-      const specs=Array.isArray(item.specs)?item.specs.map(v=>String(v||'').trim()):[];
+      const specs=Array.isArray(item.specs)?item.specs.map(x=>String(x||'').trim()):[];
 
-      const rows=products.filter(p=>
+      // 先鎖定同分類 + 同品名；不同分類絕對不能互抓。
+      const candidates=products.filter(p=>
         String(p['分類']||'').trim()===category &&
         String(p['商品名稱']||'').trim()===name
       );
 
-      const p=findProductRowBySelection(rows,specs);
-      if(!p){removed++;changed=true;return false;}
+      // 再確認這一列的規格選項包含購物車當時選的規格。
+      const p=candidates.find(p=>{
+        const groups=parseSpecs(p['商品規格']);
+        if(groups.length!==specs.length) return false;
+        return groups.every((g,i)=>g.map(v=>String(v||'').trim()).includes(specs[i]));
+      });
+
+      if(!p){
+        removed++;
+        changed=true;
+        return false;
+      }
 
       const latest={
         key:[category,name,...specs].join('||'),
@@ -1608,7 +1421,9 @@ function restoreCart(){
       };
 
       const max=Math.min(latest.stock,latest.limit||Infinity);
-      if(Number.isFinite(max) && latest.qty>max) latest.qty=Math.max(1,max);
+      if(Number.isFinite(max) && latest.qty>max){
+        latest.qty=Math.max(1,max);
+      }
 
       if(JSON.stringify(item)!==JSON.stringify(latest)) changed=true;
       Object.assign(item,latest);
@@ -1624,7 +1439,7 @@ function restoreCart(){
   renderCart();
 
   if(removed>0){
-    setTimeout(()=>toast('購物車有失效或已變更的規格，已自動移除 ♡'),300);
+    setTimeout(()=>toast('購物車有舊資料已更新，失效品項已移除 ♡'),300);
   }
 }
 function cartSubtotal(){return cart.reduce((s,x)=>s+x.price*x.qty,0)}
@@ -2133,7 +1948,7 @@ function renderProducts(){
   const mt=$('mobileShopTitle');if(mt)mt.textContent=title;
   $('itemCount').textContent=`${list.length} items`;
   $('empty').style.display=list.length?'none':'block';
-  const grouped=getProductGroups(list);$('itemCount').textContent=`${grouped.length} items`;$('productGrid').innerHTML=grouped.map(p=>productCardHtml(p)).join('');
+  $('productGrid').innerHTML=list.map(p=>productCardHtml(p)).join('');
 
   // 搜尋時不顯示目前分類公告，避免讓人誤以為仍被分類限制。
   const note=$('categoryNote');
@@ -3154,6 +2969,619 @@ async function submitOrder(){
   }
 }
 
+
+
+/* ============================================================
+   chinguu v29.14
+   1) 不同分類 + 相同品名：絕對分開，不可互抓
+   2) 同分類 + 相同品名：前台合併成一張商品卡
+   3) 選規格時：抓真正對應那一列的價格 / 圖片 / 庫存 / COD
+   4) 購物車識別：分類 + 品名 + 規格
+   ============================================================ */
+
+function v2914GroupKey(p){
+  return [String(p['分類']||'').trim(),String(p['商品名稱']||'').trim()].join('||');
+}
+function v2914GroupRows(p){
+  const key=v2914GroupKey(p);
+  return products.filter(x=>v2914GroupKey(x)===key);
+}
+function v2914GroupRepresentatives(list){
+  const seen=new Set(),out=[];
+  list.forEach(p=>{
+    const key=v2914GroupKey(p);
+    if(seen.has(key))return;
+    seen.add(key);out.push(p);
+  });
+  return out;
+}
+function v2914SpecGroupsForRows(rows){
+  const max=Math.max(0,...rows.map(r=>v29SpecGroups(r).length));
+  const out=[];
+  for(let i=0;i<max;i++){
+    const vals=[];
+    rows.forEach(r=>{
+      const g=v29SpecGroups(r)[i]||[];
+      g.forEach(v=>{v=String(v||'').trim();if(v&&!vals.includes(v))vals.push(v)});
+    });
+    if(vals.length)out.push(vals);
+  }
+  return out;
+}
+function v2914FindRow(rows,specs){
+  specs=(specs||[]).map(x=>String(x||'').trim());
+  if(!specs.length)return rows.find(r=>v29SpecGroups(r).length===0)||rows[0]||null;
+  return rows.find(r=>{
+    const gs=v29SpecGroups(r);
+    if(gs.length!==specs.length)return false;
+    return gs.every((g,i)=>g.map(x=>String(x||'').trim()).includes(specs[i]));
+  })||null;
+}
+function v2914SpecLabel(rows,i){
+  for(const r of rows){
+    const label=v29SpecLabel(r,i);
+    if(label)return label;
+  }
+  return `規格 ${i+1}`;
+}
+
+/* ---------- 商品列表：同分類+同品名才合併 ---------- */
+productCardHtml=function(p){
+  const rows=v2914GroupRows(p);
+  const base=rows[0]||p;
+  const idx=products.indexOf(base);
+  const imgs=parseImages(base['圖片網址']);
+  const img=imgs[0]||'';
+  const sold=rows.every(r=>isSold(r));
+  const prices=rows.map(r=>+r['價格']||0).filter(n=>n>0);
+  const min=prices.length?Math.min(...prices):0;
+  const max=prices.length?Math.max(...prices):0;
+  const priceText=min===max?money(min):`${money(min)}～${money(max)}`;
+
+  return `<article class="card" onclick="openProduct(${idx})">
+    <div class="image-box">
+      ${img?`<img src="${attr(img)}" alt="${attr(base['商品名稱'])}" loading="lazy">`:''}
+      ${sold?'<div class="sold-overlay">SOLD OUT</div>':''}
+      ${imgs.length>1?`<span class="sold-chip">${imgs.length} photos</span>`:''}
+      ${sold?'':`<button class="card-quick-add" type="button" onclick="event.stopPropagation();openProduct(${idx})">加入購物車</button>`}
+    </div>
+    <div class="card-info">
+      <div class="mini-tags">
+        ${base['二補']==='是'?'<span class="tag">二補</span>':''}
+        ${rows.some(r=>r['支援貨到付款']==='是')?'<span class="tag cod">可貨到付款</span>':''}
+      </div>
+      <p class="product-name">${esc(base['商品名稱'])}</p>
+      <div class="price">${priceText}</div>
+    </div>
+  </article>`;
+};
+
+renderProducts=function(){
+  const q=String($('searchInput')?.value||'').trim().toLowerCase();
+  let list=products.filter(p=>{
+    const cat=String(p['分類']||'').trim();
+    const group=String(p['大分類']||'').trim();
+    const name=String(p['商品名稱']||'').trim();
+    if(q){
+      return name.toLowerCase().includes(q)||cat.toLowerCase().includes(q)||group.toLowerCase().includes(q);
+    }
+    return (activeCategory==='全部'||cat===activeCategory)&&(activeGroup==='全部'||group===activeGroup);
+  });
+
+  const sort=$('sortSelect').value;
+  if(sort==='priceAsc')list.sort((a,b)=>(+a['價格']||0)-(+b['價格']||0));
+  if(sort==='priceDesc')list.sort((a,b)=>(+b['價格']||0)-(+a['價格']||0));
+
+  const grouped=v2914GroupRepresentatives(list);
+  const sideItems=[{label:'全部',value:'全部'},...getSideCategoryItems()];
+  const title=q
+    ? `搜尋「${$('searchInput').value.trim()}」`
+    : (activeGroup!=='全部'?groupDisplayName(activeGroup):(activeCategory==='全部'?'ALL ITEMS':(sideItems.find(x=>x.value===activeCategory)?.label||activeCategory)));
+
+  $('shopTitle').textContent=title;
+  const mt=$('mobileShopTitle');if(mt)mt.textContent=title;
+  $('itemCount').textContent=`${grouped.length} items`;
+  $('empty').style.display=grouped.length?'none':'block';
+  $('productGrid').innerHTML=grouped.map(p=>productCardHtml(p)).join('');
+
+  const note=$('categoryNote');
+  if(q){
+    if(note){note.textContent='';note.classList.remove('show');note.style.display='none'}
+  }else{
+    const noticeKey=activeGroup!=='全部'?activeGroup:(activeCategory!=='全部'?activeCategory:'ALL');
+    const notice=String(settings['分類公告:'+noticeKey]||'').trim();
+    if(note){note.textContent=notice;note.classList.toggle('show',!!notice);note.style.display=notice?'block':'none'}
+  }
+};
+
+/* ---------- 商品頁：同分類+同品名合併規格；規格改變就換價格 ---------- */
+openProduct=function(idx){
+  const clicked=products[idx];
+  const rows=v2914GroupRows(clicked);
+  const base=rows[0]||clicked;
+  const groups=v2914SpecGroupsForRows(rows);
+  const initial=groups.map(g=>g[0]);
+  const p=v2914FindRow(rows,initial)||base;
+  currentProduct=p;
+
+  const imgs=parseImages(p['圖片網址']);
+  galleryImages=imgs;galleryIndex=0;
+  const sold=rows.every(r=>isSold(r));
+
+  const galleryControls=imgs.length>1?`
+    <button class="gallery-arrow prev" type="button" aria-label="上一張圖片" onclick="event.stopPropagation();stepGallery(-1)">‹</button>
+    <button class="gallery-arrow next" type="button" aria-label="下一張圖片" onclick="event.stopPropagation();stepGallery(1)">›</button>`:'';
+  const dots=imgs.length>1?`<div class="gallery-dots">${imgs.map((_,i)=>`<button type="button" class="gallery-dot ${i===0?'active':''}" aria-label="第 ${i+1} 張圖片" onclick="showGalleryImage(${i})"></button>`).join('')}</div>`:'';
+
+  const specHtml=groups.map((g,i)=>`
+    <div class="field spec-select-field">
+      <label class="spec-title">${esc(v2914SpecLabel(rows,i))}</label>
+      <select id="spec${i}" aria-label="${attr(v2914SpecLabel(rows,i))}" onchange="v2914RefreshGroupedProduct()">
+        ${g.map(x=>`<option value="${attr(x)}">${esc(x)}</option>`).join('')}
+      </select>
+    </div>`).join('');
+
+  $('productModalBody').innerHTML=`
+    <button class="product-modal-close" type="button" aria-label="關閉" onclick="closeAll()">×</button>
+    <div class="gallery">
+      <div class="main-img-wrap" id="mainImgWrap" ontouchstart="galleryTouchStart(event)" ontouchend="galleryTouchEnd(event)">
+        ${imgs[0]?`<img id="mainProductImg" src="${attr(imgs[0])}" draggable="false" style="cursor:zoom-in" onclick="event.stopPropagation();openImageZoom(this.src)">`:''}
+        ${galleryControls}${sold?'<div id="v2914SoldOverlay" class="sold-overlay">SOLD OUT</div>':''}
+      </div>
+      ${dots}
+      ${imgs.length>1?`<div class="thumbs">${imgs.map((u,i)=>`<img class="thumb ${i===0?'active':''}" src="${attr(u)}" onclick="showGalleryImage(${i})">`).join('')}</div>`:''}
+    </div>
+    <div class="detail">
+      <div id="v2914Tags" class="mini-tags"></div>
+      <h2>${esc(base['商品名稱'])}</h2>
+      <div id="v2914Price" class="price"></div>
+      ${specHtml}
+      <div id="v2914SpecStockNote" class="spec-stock-note"></div>
+      <div class="field">
+        <label id="v2914QtyLabel">數量</label>
+        <div class="qty-stepper">
+          <button type="button" onclick="changeProductQty(-1)">−</button>
+          <input id="productQty" type="number" value="1" min="1" readonly>
+          <button type="button" onclick="changeProductQty(1)">＋</button>
+        </div>
+      </div>
+      <div id="v2914CodNote" class="cod-note"></div>
+      <div id="v2914Action"></div>
+    </div>`;
+
+  $('productModalBody').dataset.groupKey=v2914GroupKey(base);
+  showModal('productModal');
+  setTimeout(v2914RefreshGroupedProduct,0);
+};
+
+function v2914RefreshGroupedProduct(){
+  const body=$('productModalBody');
+  if(!body)return;
+  const key=body.dataset.groupKey||'';
+  const rows=products.filter(p=>v2914GroupKey(p)===key);
+  const groups=v2914SpecGroupsForRows(rows);
+  const specs=groups.map((_,i)=>String($('spec'+i)?.value||''));
+  const p=v2914FindRow(rows,specs);
+
+  const price=$('v2914Price'),note=$('v2914SpecStockNote'),action=$('v2914Action');
+  const tags=$('v2914Tags'),cod=$('v2914CodNote'),qtyLabel=$('v2914QtyLabel'),qty=$('productQty');
+
+  if(!p){
+    currentProduct=null;
+    if(price)price.textContent='此規格組合目前無資料';
+    if(note){note.classList.add('show');note.textContent='此規格組合目前無法購買。'}
+    if(action)action.innerHTML='<div class="sold-message">此規格組合目前無法購買</div>';
+    if(cod)cod.textContent='';
+    return;
+  }
+
+  currentProduct=p;
+  const unavailable=isSold(p)||v29ComboUnavailable(p,specs);
+  const limit=+p['限購數量']||0;
+  const stock=stockOf(p);
+
+  if(price)price.textContent=money(p['價格']);
+  if(tags)tags.innerHTML=(p['分類']?`<span class="tag">${esc(p['分類'])}</span>`:'')+(p['二補']==='是'?'<span class="tag">二補</span>':'');
+  if(cod)cod.textContent=p['支援貨到付款']==='是'?'此商品支援貨到付款。':'此商品不支援直接選擇貨到付款。';
+  if(note){note.classList.toggle('show',unavailable);note.textContent=unavailable?'此規格目前缺貨，請選擇其他規格。':''}
+  if(qtyLabel)qtyLabel.textContent=`數量${limit?`（每筆限購 ${limit} 件）`:''}`;
+  if(qty){qty.value='1';qty.max=Math.min(stock,limit||Infinity)}
+  if(action)action.innerHTML=unavailable?'<div class="sold-message">此規格目前已售完</div>':'<button id="v29AddCartBtn" class="primary" onclick="addCurrentToCart()">加入購物車</button>';
+
+  const imgs=parseImages(p['圖片網址']);
+  if(imgs.length){galleryImages=imgs;galleryIndex=0;const im=$('mainProductImg');if(im)im.src=imgs[0]}
+}
+
+/* ---------- 加入購物車：分類 + 品名 + 規格 ---------- */
+addCurrentToCart=function(){
+  const p=currentProduct;if(!p)return;
+  const rows=v2914GroupRows(p);
+  const groups=v2914SpecGroupsForRows(rows);
+  const specs=groups.map((_,i)=>String($('spec'+i)?.value||''));
+  const exact=v2914FindRow(rows,specs);
+  if(!exact){toast('這個規格目前無法購買');return}
+  currentProduct=exact;
+
+  if(v29ComboUnavailable(exact,specs)){toast('這個規格目前缺貨');return}
+
+  const qty=Math.max(1,+$('productQty').value||1);
+  const limit=+exact['限購數量']||0;
+  const stock=stockOf(exact);
+  const category=String(exact['分類']||'').trim();
+  const name=String(exact['商品名稱']||'').trim();
+  const key=[category,name,...specs].join('||');
+  let ex=cart.find(x=>x.key===key);
+  const total=(ex?.qty||0)+qty;
+  const max=Math.min(stock,limit||Infinity);
+  if(total>max){toast(`最多可購買 ${Number.isFinite(max)?max:'此'} 件`);return}
+
+  const latest={
+    key,name,category,price:+exact['價格']||0,
+    image:parseImages(exact['圖片網址'])[0]||'',
+    specs,specLabels:groups.map((_,i)=>v2914SpecLabel(rows,i)),
+    qty:ex?total:qty,cod:exact['支援貨到付款']==='是',
+    comboCodes:String(exact['組合代碼']||'').split(',').map(x=>x.trim()).filter(Boolean),
+    limit,stock
+  };
+  if(ex)Object.assign(ex,latest);else cart.push(latest);
+  closeAll();renderCart();saveCart();toast('已加入購物車 ♡');
+};
+
+/* ---------- 購物車：先鎖分類，再鎖品名，再鎖規格 ---------- */
+v29FindProductForCart=function(item){
+  const category=String(item.category||'').trim();
+  const name=String(item.name||'').trim();
+  const specs=Array.isArray(item.specs)?item.specs:[];
+  const rows=products.filter(p=>
+    String(p['分類']||'').trim()===category &&
+    String(p['商品名稱']||'').trim()===name
+  );
+  return v2914FindRow(rows,specs)||null;
+};
+
+v29NormalizeCartItem=function(item){
+  const category=String(item.category||'').trim();
+  const name=String(item.name||'').trim();
+  const specs=Array.isArray(item.specs)?item.specs.map(x=>String(x||'').trim()):[];
+  const rows=products.filter(p=>String(p['分類']||'').trim()===category&&String(p['商品名稱']||'').trim()===name);
+  const p=v2914FindRow(rows,specs);
+  if(!p)return item;
+
+  item.key=[category,name,...specs].join('||');
+  item.price=+p['價格']||item.price||0;
+  item.category=String(p['分類']||category).trim();
+  item.image=parseImages(p['圖片網址'])[0]||item.image||'';
+  item.cod=p['支援貨到付款']==='是';
+  item.comboCodes=String(p['組合代碼']||'').split(',').map(x=>x.trim()).filter(Boolean);
+  item.limit=+p['限購數量']||0;
+  item.stock=stockOf(p);
+  item.specLabels=v2914SpecGroupsForRows(rows).map((_,i)=>v2914SpecLabel(rows,i));
+  return item;
+};
+
+v29CartSpecEditorHtml=function(item,cartIndex,p){
+  const category=String(item.category||'').trim();
+  const name=String(item.name||'').trim();
+  const rows=products.filter(x=>String(x['分類']||'').trim()===category&&String(x['商品名稱']||'').trim()===name);
+  const groups=v2914SpecGroupsForRows(rows);
+  if(!groups.length)return '';
+  const chosen=(item.specs||[]).slice();
+  return `<div class="cart-spec-editor">${groups.map((group,g)=>{
+    const label=v2914SpecLabel(rows,g);
+    return `<div class="cart-spec-row"><div class="cart-spec-label">${esc(label)}</div><select class="cart-spec-select" onchange="v29UpdateCartSpec(${cartIndex},${g},this.value)">${group.map(v=>`<option value="${attr(v)}"${v===chosen[g]?' selected':''}>${esc(v)}</option>`).join('')}</select></div>`;
+  }).join('')}</div>`;
+};
+
+v29UpdateCartSpec=function(cartIndex,groupIndex,value){
+  const item=cart[cartIndex];if(!item)return;
+  const category=String(item.category||'').trim();
+  const name=String(item.name||'').trim();
+  const rows=products.filter(p=>String(p['分類']||'').trim()===category&&String(p['商品名稱']||'').trim()===name);
+  const groups=v2914SpecGroupsForRows(rows);
+  const specs=(item.specs||[]).slice();specs[groupIndex]=value;
+  const p=v2914FindRow(rows,specs);
+  if(!p){toast('這個規格組合目前無資料');renderCart();return}
+  if(v29ComboUnavailable(p,specs)){toast('這個規格目前缺貨');renderCart();return}
+
+  const newKey=[category,name,...specs].join('||');
+  const dup=cart.findIndex((x,i)=>i!==cartIndex&&x.key===newKey);
+  if(dup>=0){
+    const max=Math.min(stockOf(p),(+p['限購數量']||0)||Infinity);
+    const combined=cart[dup].qty+item.qty;
+    if(combined>max){toast('合併後超過可購買數量');renderCart();return}
+    cart[dup].qty=combined;cart.splice(cartIndex,1);
+  }else{
+    item.specs=specs;item.key=newKey;item.price=+p['價格']||0;
+    item.image=parseImages(p['圖片網址'])[0]||item.image||'';
+    item.cod=p['支援貨到付款']==='是';item.limit=+p['限購數量']||0;item.stock=stockOf(p);
+    item.specLabels=groups.map((_,i)=>v2914SpecLabel(rows,i));
+  }
+  renderCart();saveCart();toast('購物車規格已更新 ♡');
+};
+
+
+
+/* ============================================================
+   chinguu v29.15｜修正大量客人無法結帳
+   - 仍要求先 LINE Login
+   - 不再因「尚未完成歷史訂單綁定」阻擋結帳
+   - 有 session 但會員狀態 API 暫時失敗時，不把結帳整個鎖死
+   - 新訂單成立後，客人把訂單傳到官方 LINE，Webhook 會自動補 userId / 訂單綁定
+   ============================================================ */
+async function submitOrder(){
+  if(orderSubmitting) return;
+
+  const session=localStorage.getItem('chinguu_member_session')||'';
+
+  // 沒有登入紀錄：仍要求先登入會員
+  if(!session){
+    const go=confirm(
+      '下單前請先登入會員 ♡\n\n' +
+      '登入後才能建立訂單，商品抵台時也才能透過 LINE 通知您。\n\n' +
+      '要現在前往會員中心登入嗎？'
+    );
+    if(go) location.hash='#/mypage';
+    return;
+  }
+
+  // 會員狀態只做輕量確認；「尚未綁歷史訂單」不再擋住結帳。
+  try{
+    const memberCheck=await memberJsonp('memberSession',{session});
+    if(memberCheck && memberCheck.loggedIn===false){
+      // session 明確失效才要求重新登入
+      localStorage.removeItem('chinguu_member_session');
+      const go=confirm(
+        '會員登入已失效，請先重新登入後再下單 ♡\n\n' +
+        '要現在前往會員中心登入嗎？'
+      );
+      if(go) location.hash='#/mypage';
+      return;
+    }
+    // memberCheck.needsBinding === true 時仍可繼續結帳。
+  }catch(e){
+    // API 暫時讀取失敗時不要讓客人的結帳按鈕完全失效。
+    console.warn('會員狀態確認失敗，改為繼續結帳：',e);
+  }
+
+  const buyer=$('buyerName')?.value.trim()||'';
+  const line=$('lineName')?.value.trim()||'';
+  const payment=$('paymentSelect')?.value||'';
+  const shipping=$('shippingSelect')?.value||'';
+
+  if(payment==='貨到付款'&&codHasMixedCategories()){
+    showCodMixedCategoryAlert();
+    $('paymentSelect').value='';
+    renderMethodNotes();
+    return;
+  }
+
+  if(!buyer||!line||!payment||!shipping){
+    toast('請完整填寫訂購資料');
+    return;
+  }
+
+  if(!$('agree')?.checked){
+    toast('請先確認購物須知');
+    return;
+  }
+
+  if(!cart.length){
+    toast('購物車目前沒有商品');
+    return;
+  }
+
+  localStorage.setItem('chinguu_buyer',buyer);
+  localStorage.setItem('chinguu_line',line);
+
+  const t=totals();
+  const final=t.total;
+  const requestToken='REQ-'+Date.now()+'-'+Math.random().toString(36).slice(2,10);
+
+  const payload={
+    requestToken,
+    buyerName:buyer,
+    lineName:line,
+    payment,
+    shipping,
+    items:cart,
+    subtotal:t.subtotal,
+    comboDiscount:t.combo.total,
+    comboDetails:t.combo.items,
+    couponCode:activeCoupon||'',
+    couponDiscount:t.coupon,
+    finalPrice:final,
+    memberSession:session
+  };
+
+  const btn=document.querySelector('.checkout-submit');
+  orderSubmitting=true;
+  if(btn){
+    btn.disabled=true;
+    btn.dataset.old=btn.textContent;
+    btn.textContent='訂單建立中…';
+  }
+  showOrderLoading();
+
+  try{
+    await fetch(GAS_WEB_APP_URL,{
+      method:'POST',
+      mode:'no-cors',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify(payload)
+    });
+
+    const result=await waitOrderResult(requestToken);
+    if(!result||result.status!=='success'){
+      throw new Error(result?.message||'無法取得訂單編號');
+    }
+
+    const orderNo=result.orderNo;
+    const lines=cart.map(x=>
+      `- [${x.category}] ${x.name}${x.specs?.length?' ('+x.specs.join(' / ')+')':''} x${x.qty} = ${money(x.price*x.qty)}`
+    );
+    const comboLines=t.combo.items.map(x=>`組合優惠：${x.name} -${money(x.discount)}`).join('\n');
+    const couponLine=t.coupon?`優惠券 ${activeCoupon}：-${money(t.coupon)}`:'';
+
+    const orderText=
+      `訂單編號：${orderNo}\n\n`+
+      `꒰ 訂購人資訊 ꒱\n`+
+      `姓名：${buyer}\n`+
+      `LINE社群暱稱：${line}\n`+
+      `付款方式：${payment}\n`+
+      `配送方式：${shipping}\n`+
+      `----------------\n`+
+      `꒰ 訂購明細 ꒱\n`+
+      `${lines.join('\n')}\n`+
+      `----------------\n`+
+      `商品小計：${money(t.subtotal)}\n`+
+      `${comboLines?comboLines+'\n':''}`+
+      `${couponLine?couponLine+'\n':''}`+
+      `應付總額：${money(final)}`;
+
+    cart=[];
+    activeCoupon=null;
+    saveCart();
+    renderCart();
+    showOrderSuccess(orderNo,final,orderText);
+
+  }catch(e){
+    console.error(e);
+    alert('訂單建立失敗：'+(e.message||e));
+  }finally{
+    hideOrderLoading();
+    orderSubmitting=false;
+    if(btn){
+      btn.disabled=false;
+      btn.textContent=btn.dataset.old||'確認下單';
+    }
+  }
+}
+
+
+/* ============================================================
+   chinguu v29.16｜取消登入後才能下單
+   - 不要求會員 session
+   - 未登入也可以直接下單
+   - 若有 session 就一併送出；沒有就送空字串
+   - 客人之後把訂單傳到官方 LINE，Webhook 再自動補 userId / 綁定
+   ============================================================ */
+async function submitOrder(){
+  if(orderSubmitting) return;
+
+  const buyer=$('buyerName')?.value.trim()||'';
+  const line=$('lineName')?.value.trim()||'';
+  const payment=$('paymentSelect')?.value||'';
+  const shipping=$('shippingSelect')?.value||'';
+
+  if(payment==='貨到付款'&&codHasMixedCategories()){
+    showCodMixedCategoryAlert();
+    $('paymentSelect').value='';
+    renderMethodNotes();
+    return;
+  }
+
+  if(!buyer||!line||!payment||!shipping){
+    toast('請完整填寫訂購資料');
+    return;
+  }
+
+  if(!$('agree')?.checked){
+    toast('請先確認購物須知');
+    return;
+  }
+
+  if(!cart.length){
+    toast('購物車目前沒有商品');
+    return;
+  }
+
+  localStorage.setItem('chinguu_buyer',buyer);
+  localStorage.setItem('chinguu_line',line);
+
+  const t=totals();
+  const final=t.total;
+  const requestToken='REQ-'+Date.now()+'-'+Math.random().toString(36).slice(2,10);
+  const session=localStorage.getItem('chinguu_member_session')||'';
+
+  const payload={
+    requestToken,
+    buyerName:buyer,
+    lineName:line,
+    payment,
+    shipping,
+    items:cart,
+    subtotal:t.subtotal,
+    comboDiscount:t.combo.total,
+    comboDetails:t.combo.items,
+    couponCode:activeCoupon||'',
+    couponDiscount:t.coupon,
+    finalPrice:final,
+    memberSession:session
+  };
+
+  const btn=document.querySelector('.checkout-submit');
+  orderSubmitting=true;
+  if(btn){
+    btn.disabled=true;
+    btn.dataset.old=btn.textContent;
+    btn.textContent='訂單建立中…';
+  }
+  showOrderLoading();
+
+  try{
+    await fetch(GAS_WEB_APP_URL,{
+      method:'POST',
+      mode:'no-cors',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify(payload)
+    });
+
+    const result=await waitOrderResult(requestToken);
+    if(!result||result.status!=='success'){
+      throw new Error(result?.message||'無法取得訂單編號');
+    }
+
+    const orderNo=result.orderNo;
+    const lines=cart.map(x=>
+      `- [${x.category}] ${x.name}${x.specs?.length?' ('+x.specs.join(' / ')+')':''} x${x.qty} = ${money(x.price*x.qty)}`
+    );
+    const comboLines=t.combo.items.map(x=>`組合優惠：${x.name} -${money(x.discount)}`).join('\n');
+    const couponLine=t.coupon?`優惠券 ${activeCoupon}：-${money(t.coupon)}`:'';
+
+    const orderText=
+      `訂單編號：${orderNo}\n\n`+
+      `꒰ 訂購人資訊 ꒱\n`+
+      `姓名：${buyer}\n`+
+      `LINE社群暱稱：${line}\n`+
+      `付款方式：${payment}\n`+
+      `配送方式：${shipping}\n`+
+      `----------------\n`+
+      `꒰ 訂購明細 ꒱\n`+
+      `${lines.join('\n')}\n`+
+      `----------------\n`+
+      `商品小計：${money(t.subtotal)}\n`+
+      `${comboLines?comboLines+'\n':''}`+
+      `${couponLine?couponLine+'\n':''}`+
+      `應付總額：${money(final)}`;
+
+    cart=[];
+    activeCoupon=null;
+    saveCart();
+    renderCart();
+    showOrderSuccess(orderNo,final,orderText);
+
+  }catch(e){
+    console.error(e);
+    alert('訂單建立失敗：'+(e.message||e));
+  }finally{
+    hideOrderLoading();
+    orderSubmitting=false;
+    if(btn){
+      btn.disabled=false;
+      btn.textContent=btn.dataset.old||'確認下單';
+    }
+  }
+}
 </script>
 
 </body>
@@ -3165,4 +3593,4 @@ async function submitOrder(){
 
 <!-- chinguu v29.8｜修正新客誤選後確認歷史訂單無法綁定 -->
 
-<!-- chinguu v29.11｜分類+商品名稱合併商品卡；規格切換即時價格；購物車以分類+品名+規格辨識 -->
+<!-- chinguu v29.13｜不合併商品卡；購物車嚴格以分類+品名+規格辨識 -->
